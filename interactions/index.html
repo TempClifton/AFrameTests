@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
+	<script src="https://unpkg.com/aframe-environment-component/dist/aframe-environment-component.min.js"></script>
+	<!-- <script src="aframe-environment-map-component.min.js"></script> -->
+	<script>
+function Lerp(a, l, h)
+{
+	return l + (h - l) * a;
+}
+
+function Slerp(percent, l, h)
+{
+	let a = percent;//3.0 * percent * percent - 2.0 * percent * percent * percent;
+	return Lerp(a, l, h);
+}
+
+AFRAME.registerComponent('normalize-transform',
+{
+	schema:
+	{
+	  bottomAlign: { default: false }
+	},
+	init: function ()
+	{
+		this.el.addEventListener('model-loaded', (event) => {
+			// sets object size to 1 in Y
+			// centers object so that it's sitting on the floor (optional)
+			// examples of usage:
+			//		normalize-transform
+			//		normalize-transform="bottomAlign:true"
+			let model = this.el.getObject3D('mesh');
+
+			// remove from parent so that we can get just the bounding box of this model
+			let savedParent = model.parent;
+			model.parent = null;
+			model.updateMatrixWorld(true);
+
+			let offset = new THREE.Vector3();
+			const bbox = new THREE.Box3().setFromObject(model);
+			bbox.getCenter(offset)
+			offset.multiplyScalar(-1.0);
+
+			// restore parent
+			model.parent = savedParent;
+  
+			if (this.data.bottomAlign)
+			{
+				offset.y += (bbox.max.y - bbox.min.y) / 2.0;
+			}
+
+			let scale = 1.0 / (bbox.max.y - bbox.min.y);
+			offset.multiplyScalar(scale)
+			model.position.copy(offset);
+			model.scale.setScalar(scale)
+
+			// Tweak materials. I was having problems with imported GLB models looking super dark in A-Frame.
+			model.traverse(node => {
+				if (node.material)
+				{
+					node.material.metalness = 0;
+					if (node.material.map)
+						node.material.map.encoding = THREE.LinearEncoding;
+				}
+			});
+		});
+	}
+});
+
+AFRAME.registerComponent('hover-grow', {
+	init: function ()
+	{
+		this.el.setAttribute("animation__scale", "property: scale; to: 1.1 1.1 1.1; dur: 200; startEvents: mouseenter");
+		this.el.setAttribute("animation__scale_reverse", "property: scale; to: 1 1 1; dur: 200; startEvents: mouseleave");
+	}
+});
+
+AFRAME.registerComponent('click-spin', {
+	init: function ()
+	{
+	    this.onClick = this.onClick.bind(this);
+      	this.el.addEventListener('click', this.onClick);
+		this.el.spinning = false;
+	},
+
+	onClick: function (evt)
+	{
+		// console.log("click");
+		this.el.spinning = true;
+	},
+
+	tick: function (time, timeDelta)
+	{
+		if (this.el.spinning)
+		{
+			this.el.object3D.rotation.y += THREE.Math.degToRad(180) * timeDelta / 1000.0;
+			if (this.el.object3D.rotation.y > Math.PI * 2.0)
+			{
+				this.el.object3D.rotation.y = 0.0;
+				this.el.spinning = false;
+			}
+		}
+	},
+});
+
+AFRAME.registerComponent('click-squash', {
+	init: function ()
+	{
+	    this.onClick = this.onClick.bind(this);
+      	this.el.addEventListener('click', this.onClick);
+		this.el.running = false;
+		this.el.startTime = 0.0;
+	},
+
+	onClick: function (evt)
+	{
+		// console.log("click");
+		this.el.running = true;
+		this.el.startScale = this.el.object3D.scale.clone();
+	},
+
+	tick: function (time, timeDelta)
+	{
+		if (this.el.running)
+		{
+			let t = (time - this.el.startTime) / 1000.0;
+
+			if (t > 1.0)
+			{
+				this.el.running = false;
+				this.el.object3D.scale.copy(this.el.startScale);
+			}
+			else
+			{
+				let minY = 0.5;
+				let minX = 1.25;
+				let minZ = 1.25;
+				if (t < 0.25)
+				{
+					percent = t / 0.25;
+					this.el.object3D.scale.set(
+						Slerp(percent, this.el.startScale.x, minX),
+						Slerp(percent, this.el.startScale.y, minY),
+						Slerp(percent, this.el.startScale.z, minZ)
+					);
+				}
+				else if (t < 0.5)
+				{
+					percent = (t - 0.25) / 0.25;
+					this.el.object3D.scale.set(
+						Slerp(percent, minX, Lerp(0.25, this.el.startScale.x, minX)),
+						Slerp(percent, minY, Lerp(0.25, this.el.startScale.y, minY)),
+						Slerp(percent, minZ, Lerp(0.25, this.el.startScale.z, minZ))
+					);
+				}
+				else if (t < 0.75)
+				{
+					percent = (t - 0.5) / 0.25;
+					this.el.object3D.scale.set(
+						Slerp(percent, Lerp(0.25, this.el.startScale.x, minX), Lerp(0.75, this.el.startScale.x, minX)),
+						Slerp(percent, Lerp(0.25, this.el.startScale.y, minY), Lerp(0.75, this.el.startScale.y, minY)),
+						Slerp(percent, Lerp(0.25, this.el.startScale.z, minZ), Lerp(0.75, this.el.startScale.z, minZ))
+					);
+				}
+				else
+				{
+					percent = (t - 0.75) / 0.25;
+					this.el.object3D.scale.set(
+						Slerp(percent, Lerp(0.75, this.el.startScale.x, minX), this.el.startScale.x),
+						Slerp(percent, Lerp(0.75, this.el.startScale.y, minY), this.el.startScale.y),
+						Slerp(percent, Lerp(0.75, this.el.startScale.z, minZ), this.el.startScale.z)
+					);
+				}
+			}
+		}
+		else
+		{
+			this.el.startTime = time;
+		}
+	},
+});
+
+// AFRAME.registerComponent('highlight', {
+//   init: function () {
+//     var buttonEls = this.buttonEls = this.el.querySelectorAll('.menu-button');
+//     var backgroundEl = document.querySelector('#background');
+//     this.onClick = this.onClick.bind(this);
+//     this.onMouseEnter = this.onMouseEnter.bind(this);
+//     this.onMouseLeave = this.onMouseLeave.bind(this);
+//     this.reset = this.reset.bind(this);
+//     backgroundEl.addEventListener('click', this.reset);
+// 	console.log(buttonEls);
+//     for (var i = 0; i < buttonEls.length; ++i) {
+// 		// console.log(buttonEls[i]);
+//       buttonEls[i].addEventListener('mouseenter', this.onMouseEnter);
+//       buttonEls[i].addEventListener('mouseleave', this.onMouseLeave);
+//       buttonEls[i].addEventListener('click', this.onClick);
+//     }
+//   },
+
+//   onClick: function (evt) {
+// 	// console.log("click");
+//     evt.target.pause();
+//     evt.target.setAttribute('material', 'color', '#046de7');
+//     this.el.addState('clicked');
+//     evt.target.object3D.scale.set(1.2, 1.2, 1.2);
+//   },
+
+//   onMouseEnter: function (evt) {
+// 	// console.log("onMouseEnter");
+//     var buttonEls = this.buttonEls;
+//     evt.target.setAttribute('material', 'color', '#046de7');
+//     for (var i = 0; i < buttonEls.length; ++i) {
+//       if (evt.target === buttonEls[i]) { 
+//     /*evt.target.object3D.scale.set(1.2, 1.2, 1.2); */continue; }
+//       buttonEls[i].setAttribute('material', 'color', 'white');
+//     }
+//   },
+
+//   onMouseLeave: function (evt) {
+// 	// console.log("onMouseLeave");
+//     if (this.el.is('clicked')) { return; }
+//     evt.target.setAttribute('material', 'color', 'white');
+//   },
+
+//   reset: function () {
+//     var buttonEls = this.buttonEls;
+//     for (var i = 0; i < buttonEls.length; ++i) {
+//       this.el.removeState('clicked');
+//       buttonEls[i].play();
+//       buttonEls[i].emit('mouseleave');
+//     }
+//   }
+// });
+	</script>
+</head>
+	<body>
+		<a-scene
+			cursor="rayOrigin: mouse; fuse: false" raycaster="objects: .raycastable">
+			<a-assets>
+				<img id="creature" src="../assets/Creature829_Subdued.gif">
+				<a-asset-item id="cthulhu" src="../assets/BlockyCthulhu_Low.glb">
+				<a-asset-item id="bot" src="../assets/CylinderBot.glb">
+				<a-asset-item id="tiki" src="../assets/VikingTiki.glb">
+				<a-asset-item id="tiki2" src="../assets/TikiFromStager.glb">
+			</a-assets>
+
+			<!-- Hand controls -->
+			<a-entity hand-tracking-controls="hand: left"></a-entity>
+			<a-entity hand-tracking-controls="hand: right"></a-entity>
+			<a-entity id="leftHand" laser-controls="hand: left" raycaster="objects: .raycastable"></a-entity>
+			<a-entity id="rightHand" laser-controls="hand: right" raycaster="objects: .raycastable" line="color: #118A7E"></a-entity>
+
+			<!-- Out of the box environment! -->
+			<a-entity environment="preset: forest; dressingAmount: 500; lighting: distant; lightPosition: -0.5 1.5 2.5; shadow: true"></a-entity>
+
+			<!-- <a-entity
+				id="background"
+				position="0 0 0"
+				geometry="primitive: sphere; radius: 5.0"
+				material="color: red; side: back; shader: flat"
+				scale="0.001 0.001 0.001"
+				visible="false" class="raycastable">
+			</a-entity> -->
+
+			<!-- <a-light type="ambient" color="#444444"></a-light>
+			<a-light color="#ffffff" intensity="0.6" position="-1 1 1" castShadow="true"></a-light>
+			<a-light color="#ffffff" intensity="0.6" position="1 1 2" shadow="true"></a-light> -->
+			<!-- <a-light type="point" intensity="0.7" position="2 4 0"></a-light>
+			<a-light type="point" intensity="0.7" position="-2 2 0"></a-light> -->
+			<!-- <a-light type="probe" envMap="#pisa"></a-light> -->
+
+			<!-- <a-entity highlight> -->
+			<a-entity
+				scale="2.5 2.5 2.5"
+				position="0 0 -2.5">
+				<a-entity
+					id="glbtest"
+					gltf-model="#cthulhu"
+					color="#4CC3D9"
+					normalize-transform="bottomAlign:true"
+					shadow
+					class="raycastable menu-button"
+					_hover-grow
+					click-squash
+					>
+				</a-entity>
+			</a-entity>
+			<a-entity
+				scale="2 2 2"
+				position="-2 0 -3">
+				<a-entity
+					id="glbtest2"
+					gltf-model="#bot"
+					normalize-transform="bottomAlign:true"
+					shadow
+					class="raycastable menu-button"
+					hover-grow
+					click-spin
+					>
+				</a-entity>
+			</a-entity>
+			<a-entity
+				scale="2 2 2"
+				position="2 0 -3">
+				<a-entity
+					id="glbtest3"
+					gltf-model="#tiki"
+					normalize-transform="bottomAlign:true"
+					shadow
+					class="raycastable menu-button"
+					hover-grow
+					click-spin
+					>
+				</a-entity>
+			</a-entity>
+			<a-entity
+				scale="2 2 2"
+				position="2 0 3"
+				rotation="0 210 0">
+				<a-entity
+					id="glbtest4"
+					gltf-model="#tiki2"
+					normalize-transform="bottomAlign:true"
+					shadow
+					class="raycastable menu-button"
+					hover-grow
+					click-spin
+					>
+				</a-entity>
+			</a-entity>
+			<!-- </a-entity> -->
+
+			<a-image position="-2 1.25 2" scale="3 3 3" rotation="0 -60 0" src="#creature" isPlaying="true"></a-image>
+		</a-scene>
+	</body>
+</html>
